@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: books
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required) - The UID of the owner
+    //   - theme: string (required, 1-1000 chars) - The book theme
+    //   - childName: string (required, 1-100 chars) - The child's name
+    //   - pages: list (required, 1-15 items) - List of Page objects {imageUrl, caption, captionEn, coloredImageUrl}
+    //   - createdAt: timestamp (required) - Creation time
+    //   - isPublic: bool (optional) - Whether the book is public
+    //   - avatarUrl: string (optional) - URL to the child's avatar
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Validator for Book entity
+    function isValidBook(data) {
+      return data.userId is string &&
+             data.theme is string && data.theme.size() > 0 && data.theme.size() <= 1000 &&
+             data.childName is string && data.childName.size() > 0 && data.childName.size() <= 100 &&
+             (!('pages' in data) || (data.pages is list && data.pages.size() <= 15)) &&
+             data.createdAt is timestamp &&
+             (!('isPublic' in data) || data.isPublic is bool) &&
+             (!('thumbnailUrl' in data) || data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() < 1000000)) &&
+             (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() < 1000000));
+    }
+
+    // Ensure only allowed fields are present
+    function hasOnlyBookFields(data) {
+      return data.keys().hasOnly(['userId', 'theme', 'childName', 'pages', 'createdAt', 'isPublic', 'avatarUrl', 'thumbnailUrl']);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /books/{bookId} {
+      // Allow reading if the book is public OR the user is the owner
+      allow read: if (resource != null && resource.data.isPublic == true) || 
+                     (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      
+      allow create: if isAuthenticated() && 
+                      request.resource.data.userId == request.auth.uid && 
+                      isValidBook(request.resource.data) &&
+                      hasOnlyBookFields(request.resource.data);
+      
+      allow update: if isAuthenticated() && 
+                      resource.data.userId == request.auth.uid &&
+                      request.resource.data.userId == request.auth.uid &&
+                      isValidBook(request.resource.data) &&
+                      hasOnlyBookFields(request.resource.data) &&
+                      request.resource.data.createdAt == resource.data.createdAt;
+      
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Subcollection for pages to stay under 1MB limit
+      match /pages/{pageId} {
+        allow read: if (get(/databases/$(database)/documents/books/$(bookId)).data.isPublic == true) || 
+                       (isAuthenticated() && get(/databases/$(database)/documents/books/$(bookId)).data.userId == request.auth.uid);
+        allow write: if isAuthenticated() && get(/databases/$(database)/documents/books/$(bookId)).data.userId == request.auth.uid;
+      }
+    }
+    
+    // Connection test path
+    match /test/connection {
+      allow read: if true;
+    }
+  }
+}

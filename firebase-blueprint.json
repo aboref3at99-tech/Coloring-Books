@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "Page": {
+      "title": "Page",
+      "description": "A single coloring page",
+      "type": "object",
+      "properties": {
+        "imageUrl": { "type": "string", "description": "The URL of the generated image" },
+        "caption": { "type": "string", "description": "The caption for the page" }
+      },
+      "required": ["imageUrl", "caption"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "A generated coloring book",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The ID of the user who created the book" },
+        "theme": { "type": "string", "description": "The theme of the book" },
+        "childName": { "type": "string", "description": "The name of the child" },
+        "pages": { 
+          "type": "array", 
+          "items": { "$ref": "Page" },
+          "description": "The pages of the book" 
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the book was created" }
+      },
+      "required": ["userId", "theme", "childName", "pages", "createdAt"]
+    }
+  },
+  "firestore": {
+    "books/{bookId}": {
+      "schema": "Book",
+      "description": "Collection of saved coloring books"
+    }
+  }
+}
