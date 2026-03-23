@@ -13,6 +13,7 @@ export class ApiError extends Error {
 }
 
 export const parseApiError = (err: any): ApiError => {
+  console.error("API Error caught by parseApiError:", err);
   const errorMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
   
   if (errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED")) {
@@ -78,6 +79,16 @@ export const parseApiError = (err: any): ApiError => {
     );
   }
 
+  if (errorMsg.includes("MODEL_RETURNED_TEXT")) {
+    const textMsg = errorMsg.split("MODEL_RETURNED_TEXT:")[1]?.trim() || "رسالة غير معروفة";
+    return new ApiError(
+      "لم يتم توليد الصورة",
+      'UNKNOWN',
+      `رد النموذج بنص بدلاً من صورة: ${textMsg}`,
+      err
+    );
+  }
+
   if (errorMsg.includes("EMPTY_RESPONSE") || errorMsg.includes("No image data returned")) {
     return new ApiError(
       "لم يتم توليد الصورة",
@@ -103,7 +114,7 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> =>
       return await fn();
     } catch (err: any) {
       const errorMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-      const isRetryable = errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("503") || errorMsg.includes("500");
+      const isRetryable = errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("503") || errorMsg.includes("500") || errorMsg.includes("EMPTY_RESPONSE") || errorMsg.includes("MODEL_RETURNED_TEXT");
       
       if (isRetryable && retries < maxRetries) {
         retries++;
@@ -131,8 +142,10 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
   const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || process.env.KIMI || process.env.KIMI_API_KEY;
   const ai = new GoogleGenAI({ apiKey });
   
+  const safePrompt = params.prompt?.trim() || "A beautiful coloring page";
+
   const coloringPrompt = `A high-quality, pure black and white line art coloring book page for children. 
-  Subject: ${params.prompt}. 
+  Subject: ${safePrompt}. 
   Style Requirements: 
   - STRICTLY black and white ONLY. No grayscale, no colors, no shading, no halftones.
   - Thick, bold, continuous black outlines.
@@ -162,9 +175,7 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
       
       const response = await ai.models.generateContent({
         model: modelToUse,
-        contents: {
-          parts: parts,
-        },
+        contents: params.avatarUrl ? { parts: parts } : coloringPrompt,
         ...(isPreviewModel ? {
           config: {
             imageConfig: {
@@ -175,13 +186,30 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
         } : {})
       });
 
+      if ((response as any).promptFeedback?.blockReason) {
+        throw new Error(`SAFETY_BLOCKED: Prompt was blocked. Reason: ${(response as any).promptFeedback.blockReason}`);
+      }
+      
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("EMPTY_RESPONSE: No candidates returned from the model.");
+      }
+
       if (response.candidates?.[0]?.content?.parts) {
+        let textResponse = "";
         for (const part of response.candidates[0].content.parts) {
           if (part.inlineData) {
             const mimeType = part.inlineData.mimeType || 'image/png';
             return `data:${mimeType};base64,${part.inlineData.data}`;
+          } else if (part.text) {
+            textResponse += part.text + " ";
           }
         }
+        if (textResponse.trim()) {
+          throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
+        }
+        console.error("No inlineData found in parts:", JSON.stringify(response.candidates[0].content.parts));
+      } else {
+        console.error("No parts found in response:", JSON.stringify(response));
       }
       
       // If we reach here, no image was returned (likely blocked by safety)
@@ -196,16 +224,20 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
         try {
           const fallbackResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
-            contents: {
-              parts: parts,
-            },
+            contents: params.avatarUrl ? { parts: parts } : coloringPrompt,
           });
           if (fallbackResponse.candidates?.[0]?.content?.parts) {
+            let textResponse = "";
             for (const part of fallbackResponse.candidates[0].content.parts) {
               if (part.inlineData) {
                 const mimeType = part.inlineData.mimeType || 'image/png';
                 return `data:${mimeType};base64,${part.inlineData.data}`;
+              } else if (part.text) {
+                textResponse += part.text + " ";
               }
+            }
+            if (textResponse.trim()) {
+              throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
             }
           }
           
@@ -359,12 +391,22 @@ export const generateAvatar = async (base64Image: string) => {
         },
       });
 
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("EMPTY_RESPONSE: No candidates returned from the model.");
+      }
+
       if (response.candidates?.[0]?.content?.parts) {
+        let textResponse = "";
         for (const part of response.candidates[0].content.parts) {
           if (part.inlineData) {
             const outMimeType = part.inlineData.mimeType || 'image/png';
             return `data:${outMimeType};base64,${part.inlineData.data}`;
+          } else if (part.text) {
+            textResponse += part.text + " ";
           }
+        }
+        if (textResponse.trim()) {
+          throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
         }
       }
       
@@ -448,12 +490,22 @@ export const editColoringImage = async (base64Image: string, editPrompt: string,
         } : {})
       });
 
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("EMPTY_RESPONSE: No candidates returned from the model.");
+      }
+
       if (response.candidates?.[0]?.content?.parts) {
+        let textResponse = "";
         for (const part of response.candidates[0].content.parts) {
           if (part.inlineData) {
             const outMimeType = part.inlineData.mimeType || 'image/png';
             return `data:${outMimeType};base64,${part.inlineData.data}`;
+          } else if (part.text) {
+            textResponse += part.text + " ";
           }
+        }
+        if (textResponse.trim()) {
+          throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
         }
       }
       
@@ -476,11 +528,17 @@ export const editColoringImage = async (base64Image: string, editPrompt: string,
             },
           });
           if (fallbackResponse.candidates?.[0]?.content?.parts) {
+            let textResponse = "";
             for (const part of fallbackResponse.candidates[0].content.parts) {
               if (part.inlineData) {
                 const outMimeType = part.inlineData.mimeType || 'image/png';
                 return `data:${outMimeType};base64,${part.inlineData.data}`;
+              } else if (part.text) {
+                textResponse += part.text + " ";
               }
+            }
+            if (textResponse.trim()) {
+              throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
             }
           }
           
