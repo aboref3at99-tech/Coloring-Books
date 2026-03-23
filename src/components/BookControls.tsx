@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as UserIcon, Sparkles, Image as ImageIcon, Palette, Wand2, Loader2, AlertCircle, Download, Printer, Cloud, Globe } from 'lucide-react';
 import { User } from 'firebase/auth';
-import { ImageSize, Page } from '../types';
+import { ImageSize, Page, AspectRatio } from '../types';
 
 interface BookControlsProps {
   childName: string;
@@ -13,6 +13,8 @@ interface BookControlsProps {
   setQuality: (q: 'standard' | 'high') => void;
   imageSize: ImageSize;
   setImageSize: (s: ImageSize) => void;
+  aspectRatio: AspectRatio;
+  setAspectRatio: (a: AspectRatio) => void;
   pageCount: number;
   setPageCount: (c: number) => void;
   isThinking: boolean;
@@ -45,6 +47,8 @@ export const BookControls: React.FC<BookControlsProps> = ({
   setQuality,
   imageSize,
   setImageSize,
+  aspectRatio,
+  setAspectRatio,
   pageCount,
   setPageCount,
   isThinking,
@@ -163,22 +167,46 @@ export const BookControls: React.FC<BookControlsProps> = ({
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
-                    className="grid grid-cols-3 gap-2 overflow-hidden"
+                    className="space-y-4 overflow-hidden"
                   >
-                    {(["1K", "2K", "4K"] as ImageSize[]).map((size) => (
-                      <button
-                        key={size}
-                        onClick={() => setImageSize(size)}
-                        className={`py-2 rounded-xl text-[10px] font-black border transition-all ${
-                          imageSize === size 
-                            ? 'bg-stone-800 border-stone-800 text-white' 
-                            : 'bg-white border-stone-100 text-stone-400 hover:bg-stone-50'
-                        }`}
-                        disabled={isGenerating}
-                      >
-                        {size}
-                      </button>
-                    ))}
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["1K", "2K", "4K"] as ImageSize[]).map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setImageSize(size)}
+                          className={`py-2 rounded-xl text-[10px] font-black border transition-all ${
+                            imageSize === size 
+                              ? 'bg-stone-800 border-stone-800 text-white' 
+                              : 'bg-white border-stone-100 text-stone-400 hover:bg-stone-50'
+                          }`}
+                          disabled={isGenerating}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-stone-400 flex items-center gap-2 px-1">
+                        أبعاد الصورة
+                      </label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {(["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"] as AspectRatio[]).map((ratio) => (
+                          <button
+                            key={ratio}
+                            onClick={() => setAspectRatio(ratio)}
+                            className={`py-2 rounded-xl text-[9px] font-black border transition-all ${
+                              aspectRatio === ratio 
+                                ? 'bg-emerald-600 border-emerald-600 text-white' 
+                                : 'bg-white border-stone-100 text-stone-400 hover:bg-stone-50'
+                            }`}
+                            disabled={isGenerating}
+                          >
+                            {ratio}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>

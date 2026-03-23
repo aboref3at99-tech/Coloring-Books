@@ -134,6 +134,7 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> =>
 export interface ImageGenerationParams {
   prompt: string;
   imageSize: "1K" | "2K" | "4K";
+  aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "9:16" | "16:9" | "21:9";
   model?: string;
   avatarUrl?: string;
 }
@@ -179,7 +180,7 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
         ...(isPreviewModel ? {
           config: {
             imageConfig: {
-              aspectRatio: "1:1",
+              aspectRatio: params.aspectRatio || "1:1",
               imageSize: params.imageSize
             },
           }
@@ -635,12 +636,37 @@ export const translateToArabic = async (text: string): Promise<string> => {
 
   return withRetry(async () => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: prompt,
     });
 
     if (!response.text) throw new Error("Failed to translate text.");
     return response.text.trim();
+  });
+};
+
+export const analyzeImage = async (base64Image: string, userPrompt: string = "Describe this image for a children's coloring book.") => {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || process.env.KIMI || process.env.KIMI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const match = base64Image.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) throw new Error("Invalid image format");
+  const mimeType = match[1];
+  const data = match[2];
+
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: {
+        parts: [
+          { inlineData: { data, mimeType } },
+          { text: userPrompt },
+        ],
+      },
+    });
+
+    if (!response.text) throw new Error("Failed to analyze image.");
+    return response.text;
   });
 };
 

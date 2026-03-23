@@ -1,5 +1,5 @@
 import React from 'react';
-import { Palette, History, Settings, Download, Loader2, LogOut, User as UserIcon, RotateCcw, LayoutGrid } from 'lucide-react';
+import { Palette, History, Settings, Download, Loader2, LogOut, User as UserIcon, RotateCcw, LayoutGrid, Camera } from 'lucide-react';
 import { User } from 'firebase/auth';
 
 interface HeaderProps {
@@ -9,6 +9,7 @@ interface HeaderProps {
   onShowHistory: () => void;
   onShowSettings: () => void;
   onShowQuickPreview: () => void;
+  onShowVision: () => void;
   onSaveBook: () => void;
   onReset: () => void;
   isSaving: boolean;
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   onShowHistory,
   onShowSettings,
   onShowQuickPreview,
+  onShowVision,
   onSaveBook,
   onReset,
   isSaving,
@@ -45,6 +47,15 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-4">
+          <button
+            onClick={onShowVision}
+            className="p-2.5 text-blue-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center gap-2"
+            title="تحليل الصور"
+          >
+            <Camera size={20} />
+            <span className="hidden sm:inline text-xs font-bold">تحليل الصور</span>
+          </button>
+
           {user ? (
             <div className="flex items-center gap-3">
               <div className="hidden md:flex items-center gap-2 mr-2">

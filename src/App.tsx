@@ -5,9 +5,12 @@ import { ChatBot } from './components/ChatBot';
 import { auth, db, googleProvider } from './firebase';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs, orderBy, Timestamp, getDocFromServer, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { Page, SavedBook, ImageSize, Selection } from './types';
+import { Page, SavedBook, ImageSize, Selection, AspectRatio } from './types';
 import { ApiError, parseApiError } from './services/geminiService';
 import { ApiErrorModal } from './components/modals/ApiErrorModal';
+import { motion, AnimatePresence } from 'motion/react';
+
+import { VisionModal } from './components/VisionModal';
 
 // Components
 import { Header } from './components/Header';
@@ -73,6 +76,7 @@ export default function App() {
   const [theme, setTheme] = useState('');
   const [childName, setChildName] = useState('');
   const [imageSize, setImageSize] = useState<ImageSize>("1K");
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [pageCount, setPageCount] = useState(5);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -107,6 +111,7 @@ export default function App() {
   const [showGenerateConfirm, setShowGenerateConfirm] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [showQuickPreview, setShowQuickPreview] = useState(false);
+  const [showVision, setShowVision] = useState(false);
   const [currentCarouselIndex, setCurrentCarouselIndex] = useState(0);
   const [apiError, setApiError] = useState<ApiError | null>(null);
   const [lastAction, setLastAction] = useState<(() => void) | null>(null);
@@ -472,7 +477,8 @@ export default function App() {
           const imageUrl = await generateColoringImage({
             prompt: scenes[i].imagePrompt,
             imageSize: imageSize,
-            model: currentQuality === 'standard' ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image-preview',
+            aspectRatio: aspectRatio,
+            model: currentQuality === 'standard' ? 'gemini-2.5-flash-image' : 'gemini-3-pro-image-preview',
             avatarUrl: avatarUrl || undefined
           });
           newPages.push({
@@ -748,6 +754,7 @@ export default function App() {
         onShowHistory={() => setShowHistory(true)}
         onShowSettings={() => setShowSettings(true)}
         onShowQuickPreview={() => setShowQuickPreview(true)}
+        onShowVision={() => setShowVision(true)}
         onSaveBook={() => saveBook(pages)}
         onReset={reset}
         isSaving={isSaving}
@@ -755,6 +762,47 @@ export default function App() {
         isGenerating={isGenerating}
         currentBookId={currentBookId}
       />
+
+      {pages.length === 0 && !isGenerating && (
+        <section className="relative h-[500px] flex items-center justify-center overflow-hidden bg-stone-900">
+          <div className="absolute inset-0 opacity-40">
+            <img 
+              src="https://picsum.photos/seed/coloring/1920/1080?blur=4" 
+              className="w-full h-full object-cover"
+              alt="Hero Background"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <div className="relative z-10 text-center space-y-6 px-6 max-w-4xl">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+            >
+              <h2 className="text-5xl md:text-7xl font-serif font-bold text-white leading-tight">
+                حول خيال طفلك إلى <span className="text-pink-500">حقيقة</span>
+              </h2>
+              <p className="text-xl text-stone-300 mt-6 font-medium max-w-2xl mx-auto">
+                استخدم الذكاء الاصطناعي لإنشاء كتب تلوين مخصصة وفريدة من نوعها بلمسة زر واحدة.
+              </p>
+              <div className="flex flex-wrap justify-center gap-4 mt-10">
+                <button 
+                  onClick={() => document.getElementById('child-name-input')?.focus()}
+                  className="px-8 py-4 bg-pink-600 text-white rounded-2xl font-bold text-lg hover:bg-pink-700 transition-all shadow-xl shadow-pink-600/20"
+                >
+                  ابدأ الآن مجاناً
+                </button>
+                <button 
+                  onClick={() => setShowGallery(true)}
+                  className="px-8 py-4 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-bold text-lg hover:bg-white/20 transition-all"
+                >
+                  تصفح المعرض
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+      )}
 
       <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
@@ -768,6 +816,8 @@ export default function App() {
               setQuality={setQuality}
               imageSize={imageSize}
               setImageSize={setImageSize}
+              aspectRatio={aspectRatio}
+              setAspectRatio={setAspectRatio}
               pageCount={pageCount}
               setPageCount={setPageCount}
               isThinking={isThinking}
@@ -939,6 +989,7 @@ export default function App() {
         />
       )}
 
+      <VisionModal isOpen={showVision} onClose={() => setShowVision(false)} />
       <ChatBot kimiKey={useKimi ? kimiApiKey : undefined} />
     </div>
   );
