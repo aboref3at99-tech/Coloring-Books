@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { generateColoringImage, editColoringImage, generateBookScenes, BookScene, generateVideoFromImage, suggestColorPalette, translateToArabic } from './services/geminiService';
 import { ChatBot } from './components/ChatBot';
 import { auth, db, googleProvider } from './firebase';
@@ -9,6 +10,7 @@ import { Page, SavedBook, ImageSize, Selection, AspectRatio } from './types';
 import { ApiError, parseApiError } from './services/geminiService';
 import { ApiErrorModal } from './components/modals/ApiErrorModal';
 import { motion, AnimatePresence } from 'motion/react';
+import { Sparkles } from 'lucide-react';
 
 import { VisionModal } from './components/VisionModal';
 
@@ -75,11 +77,37 @@ import { ColoringCanvas } from './components/ColoringCanvas';
 export default function App() {
   const [theme, setTheme] = useState('');
   const [childName, setChildName] = useState('');
-  const [imageSize, setImageSize] = useState<ImageSize>("1K");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
-  const [quality, setQuality] = useState<'standard' | 'high'>('standard');
-  const [pageCount, setPageCount] = useState(5);
+  const [imageSize, setImageSize] = useState<ImageSize>(() => {
+    try {
+      return (localStorage.getItem('PREF_IMAGE_SIZE') as ImageSize) || "1K";
+    } catch {
+      return "1K";
+    }
+  });
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => {
+    try {
+      return (localStorage.getItem('PREF_ASPECT_RATIO') as AspectRatio) || "1:1";
+    } catch {
+      return "1:1";
+    }
+  });
+  const [quality, setQuality] = useState<'standard' | 'high'>(() => {
+    try {
+      return (localStorage.getItem('PREF_QUALITY') as 'standard' | 'high') || 'standard';
+    } catch {
+      return 'standard';
+    }
+  });
+  const [pageCount, setPageCount] = useState(() => {
+    try {
+      const saved = localStorage.getItem('PREF_PAGE_COUNT');
+      return saved ? parseInt(saved) : 5;
+    } catch {
+      return 5;
+    }
+  });
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [pages, setPages] = useState<Page[]>([]);
@@ -99,9 +127,21 @@ export default function App() {
   const [loadingPalette, setLoadingPalette] = useState<number | null>(null);
   const [currentBookId, setCurrentBookId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
+  const [isThinking, setIsThinking] = useState(() => {
+    try {
+      return localStorage.getItem('PREF_THINKING') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isTranslating, setIsTranslating] = useState(false);
-  const [isBilingual, setIsBilingual] = useState(false);
+  const [isBilingual, setIsBilingual] = useState(() => {
+    try {
+      return localStorage.getItem('PREF_BILINGUAL') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isColoring, setIsColoring] = useState<number | null>(null);
   const [showGallery, setShowGallery] = useState(false);
@@ -115,6 +155,7 @@ export default function App() {
   const [currentCarouselIndex, setCurrentCarouselIndex] = useState(0);
   const [apiError, setApiError] = useState<ApiError | null>(null);
   const [lastAction, setLastAction] = useState<(() => void) | null>(null);
+  const [showDraftResumeConfirm, setShowDraftResumeConfirm] = useState(false);
 
   const handleApiError = (err: any, retryAction?: () => void) => {
     const parsed = err instanceof ApiError ? err : parseApiError(err);
@@ -173,12 +214,97 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (user) {
-        fetchSavedBooks(user.uid);
+        fetchSavedBooks(user.uid).catch(err => {
+          console.error("Uncaught error in fetchSavedBooks:", err);
+        });
       }
     });
-    fetchPublicBooks();
+    fetchPublicBooks().catch(err => {
+      console.error("Uncaught error in fetchPublicBooks:", err);
+    });
+
+    // Load draft from local storage on mount
+    try {
+      const savedDraft = localStorage.getItem('COLORING_BOOK_DRAFT');
+      if (savedDraft) {
+        const draft = JSON.parse(savedDraft);
+        if (draft.pages && draft.pages.length > 0) {
+          // We found a draft, let's ask the user if they want to resume
+          setShowDraftResumeConfirm(true);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading draft from local storage:", err);
+    }
+
     return () => unsubscribe();
   }, []);
+
+  // Persist preferences to local storage
+  useEffect(() => {
+    try {
+      localStorage.setItem('PREF_IMAGE_SIZE', imageSize);
+      localStorage.setItem('PREF_ASPECT_RATIO', aspectRatio);
+      localStorage.setItem('PREF_QUALITY', quality);
+      localStorage.setItem('PREF_PAGE_COUNT', pageCount.toString());
+      localStorage.setItem('PREF_BILINGUAL', isBilingual.toString());
+      localStorage.setItem('PREF_THINKING', isThinking.toString());
+    } catch (err) {
+      console.warn("Could not save preferences to local storage:", err);
+    }
+  }, [imageSize, aspectRatio, quality, pageCount, isBilingual, isThinking]);
+
+  // Save draft to local storage whenever relevant state changes
+  useEffect(() => {
+    if (pages.length > 0 || theme || childName) {
+      try {
+        const draft = {
+          pages,
+          theme,
+          childName,
+          currentBookId,
+          avatarUrl,
+          isBilingual,
+          imageSize,
+          aspectRatio,
+          quality,
+          pageCount,
+          lastSaved: new Date().toISOString()
+        };
+        localStorage.setItem('COLORING_BOOK_DRAFT', JSON.stringify(draft));
+      } catch (err) {
+        // QuotaExceededError is common with large base64 images
+        console.warn("Could not save draft to local storage (likely quota exceeded):", err);
+      }
+    }
+  }, [pages, theme, childName, currentBookId, avatarUrl, isBilingual, imageSize, aspectRatio, quality, pageCount]);
+
+  const resumeDraft = () => {
+    const savedDraft = localStorage.getItem('COLORING_BOOK_DRAFT');
+    if (savedDraft) {
+      try {
+        const draft = JSON.parse(savedDraft);
+        setPages(draft.pages || []);
+        setTheme(draft.theme || '');
+        setChildName(draft.childName || '');
+        setCurrentBookId(draft.currentBookId || null);
+        setAvatarUrl(draft.avatarUrl || null);
+        setIsBilingual(draft.isBilingual || false);
+        setImageSize(draft.imageSize || "1K");
+        setAspectRatio(draft.aspectRatio || "1:1");
+        setQuality(draft.quality || 'standard');
+        setPageCount(draft.pageCount || 5);
+      } catch (err) {
+        console.error("Error resuming draft:", err);
+      }
+    }
+    setShowDraftResumeConfirm(false);
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem('COLORING_BOOK_DRAFT');
+    setShowDraftResumeConfirm(false);
+  };
 
   const fetchPublicBooks = async () => {
     const path = 'books';
@@ -282,6 +408,7 @@ export default function App() {
       await signOut(auth);
       setPages([]);
       setSavedBooks([]);
+      localStorage.removeItem('COLORING_BOOK_DRAFT');
     } catch (err) {
       console.error("Logout error:", err);
     }
@@ -291,13 +418,17 @@ export default function App() {
     if (currentBookId) {
       setShowSaveConfirm(true);
     } else {
-      saveBook(pages);
+      saveBook(pages).catch(err => {
+        console.error("Uncaught error in handleSaveClick:", err);
+      });
     }
   };
 
   const confirmSave = () => {
     setShowSaveConfirm(false);
-    saveBook(pages);
+    saveBook(pages).catch(err => {
+      console.error("Uncaught error in confirmSave:", err);
+    });
   };
 
   const resizeImage = (base64Str: string, maxWidth: number, maxHeight: number, quality: number = 0.7): Promise<string> => {
@@ -445,8 +576,12 @@ export default function App() {
   const saveKimiSettings = (key: string, enabled: boolean) => {
     setKimiApiKey(key);
     setUseKimi(enabled);
-    localStorage.setItem('KIMI_API_KEY', key);
-    localStorage.setItem('USE_KIMI', enabled.toString());
+    try {
+      localStorage.setItem('KIMI_API_KEY', key);
+      localStorage.setItem('USE_KIMI', enabled.toString());
+    } catch (err) {
+      console.warn("Could not save Kimi settings to local storage:", err);
+    }
     setShowSettings(false);
   };
 
@@ -495,7 +630,9 @@ export default function App() {
         }
       }
       if (user) {
-        saveBook(newPages);
+        saveBook(newPages).catch(err => {
+          console.error("Uncaught error in auto-save after generation:", err);
+        });
       }
     } catch (err: any) {
       handleApiError(err, () => generateBook(forceStandard));
@@ -524,91 +661,268 @@ export default function App() {
     }
   };
 
-  const generatePdf = () => {
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
+  const generatePdf = async () => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const renderContainer = document.getElementById('pdf-render-container');
+      if (!renderContainer) throw new Error("Render container not found");
 
-    // Cover Page (Coloring Page)
-    if (pages.length > 0) {
-      const coverPage = pages[0];
-      doc.addImage(coverPage.imageUrl, 'PNG', 20, 40, pageWidth - 40, pageWidth - 40);
-      
-      doc.setTextColor(20, 20, 20);
-      doc.setFontSize(36);
-      doc.text(coverPage.caption, pageWidth / 2, 30, { align: 'center' });
-      
-      if (coverPage.captionEn) {
-        doc.setFontSize(18);
-        doc.text(coverPage.captionEn, pageWidth / 2, 220, { align: 'center' });
+      // Helper to render a page to canvas and add to PDF
+      const addPageToPdf = async (pageData: Page, isFirst: boolean, pageNum?: number) => {
+        if (!isFirst) doc.addPage();
+        
+        // Clear container
+        renderContainer.innerHTML = '';
+        
+        // Create page element
+        const pageEl = document.createElement('div');
+        pageEl.style.width = '210mm';
+        pageEl.style.height = '297mm';
+        pageEl.style.padding = '20mm';
+        pageEl.style.display = 'flex';
+        pageEl.style.flexDirection = 'column';
+        pageEl.style.alignItems = 'center';
+        pageEl.style.justifyContent = 'center';
+        pageEl.style.backgroundColor = 'white';
+        pageEl.style.position = 'relative';
+        pageEl.style.fontFamily = "'Inter', sans-serif";
+        pageEl.dir = 'rtl';
+
+        // Background for cover page
+        if (isFirst) {
+          pageEl.style.background = 'radial-gradient(circle at 50% 50%, #fff5f8 0%, #ffffff 100%)';
+          
+          // Disney Magic Studio Branding
+          const branding = document.createElement('div');
+          branding.style.position = 'absolute';
+          branding.style.top = '15mm';
+          branding.style.fontSize = '14pt';
+          branding.style.fontWeight = 'bold';
+          branding.style.color = '#db2777';
+          branding.style.fontFamily = "'Fredoka', sans-serif";
+          branding.style.letterSpacing = '2px';
+          branding.style.textTransform = 'uppercase';
+          branding.innerText = '✨ Disney Magic Studio ✨';
+          pageEl.appendChild(branding);
+
+          // Theme / Title
+          const title = document.createElement('div');
+          title.style.marginBottom = '10mm';
+          title.style.fontSize = '36pt';
+          title.style.fontWeight = '900';
+          title.style.textAlign = 'center';
+          title.style.color = '#9333ea';
+          title.style.width = '170mm';
+          title.style.lineHeight = '1.2';
+          title.style.fontFamily = "'Cairo', sans-serif";
+          title.style.textShadow = '2px 2px 4px rgba(0,0,0,0.1)';
+          title.innerText = theme || 'قصة تلوين سحرية';
+          pageEl.appendChild(title);
+
+          // Child Name
+          const hero = document.createElement('div');
+          hero.style.marginBottom = '15mm';
+          hero.style.fontSize = '24pt';
+          hero.style.fontWeight = 'bold';
+          hero.style.color = '#db2777';
+          hero.style.fontFamily = "'Cairo', sans-serif";
+          hero.innerText = `بطل القصة: ${childName || 'صديقنا الصغير'}`;
+          pageEl.appendChild(hero);
+        }
+
+        // Image
+        const img = document.createElement('img');
+        img.src = pageData.coloredImageUrl || pageData.imageUrl;
+        img.style.width = isFirst ? '140mm' : '100%';
+        img.style.aspectRatio = '1/1';
+        img.style.objectFit = 'contain';
+        img.style.borderRadius = '16px';
+        img.style.border = isFirst ? '4px solid #fdf2f8' : '1px solid #eee';
+        img.style.boxShadow = isFirst ? '0 20px 40px rgba(0,0,0,0.1)' : 'none';
+        img.crossOrigin = 'anonymous';
+        pageEl.appendChild(img);
+
+        // Caption
+        if (!isFirst) {
+          const caption = document.createElement('div');
+          caption.style.marginTop = '10mm';
+          caption.style.fontSize = '28pt';
+          caption.style.fontWeight = 'bold';
+          caption.style.textAlign = 'center';
+          caption.style.color = 'white';
+          caption.style.width = '170mm';
+          caption.style.lineHeight = '1.4';
+          caption.style.webkitTextStroke = '1.2px black';
+          caption.style.fontFamily = pageEl.dir === 'rtl' ? "'Cairo', sans-serif" : "'Fredoka', sans-serif";
+          caption.innerText = pageData.caption;
+          pageEl.appendChild(caption);
+
+          if (pageData.captionEn) {
+            const captionEn = document.createElement('div');
+            captionEn.style.marginTop = '5mm';
+            captionEn.style.fontSize = '20pt';
+            captionEn.style.fontWeight = 'bold';
+            captionEn.style.textAlign = 'center';
+            captionEn.style.color = 'white';
+            captionEn.style.width = '170mm';
+            captionEn.style.lineHeight = '1.3';
+            captionEn.style.webkitTextStroke = '0.8px black';
+            captionEn.style.fontFamily = "'Fredoka', sans-serif";
+            captionEn.innerText = pageData.captionEn;
+            pageEl.appendChild(captionEn);
+          }
+        } else {
+          // Footer for cover
+          const footer = document.createElement('div');
+          footer.style.position = 'absolute';
+          footer.style.bottom = '20mm';
+          footer.style.fontSize = '12pt';
+          footer.style.color = '#999';
+          footer.style.fontFamily = "'Cairo', sans-serif";
+          footer.innerText = 'صُنع بكل حب في استوديو القصص السحري';
+          pageEl.appendChild(footer);
+        }
+
+        // Page Number
+        if (pageNum !== undefined) {
+          const pageNumEl = document.createElement('div');
+          pageNumEl.style.position = 'absolute';
+          pageNumEl.style.bottom = '10mm';
+          pageNumEl.style.left = '0';
+          pageNumEl.style.right = '0';
+          pageNumEl.style.textAlign = 'center';
+          pageNumEl.style.fontSize = '10pt';
+          pageNumEl.style.color = '#999';
+          pageNumEl.innerText = `صفحة ${pageNum}`;
+          pageEl.appendChild(pageNumEl);
+        }
+
+        renderContainer.appendChild(pageEl);
+
+        // Wait for image to load
+        await new Promise((resolve, reject) => {
+          if (img.complete) resolve(null);
+          else {
+            img.onload = () => resolve(null);
+            img.onerror = () => reject(new Error("Failed to load image for PDF"));
+          }
+          // Timeout after 10s
+          setTimeout(() => reject(new Error("Image load timeout")), 10000);
+        });
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          onclone: (clonedDoc) => {
+            // Force standard colors on the cloned document to avoid oklch parsing errors in html2canvas
+            // 1. Clean all style tags from problematic modern CSS functions (oklch, color-mix)
+            const styleTags = Array.from(clonedDoc.getElementsByTagName('style'));
+            styleTags.forEach(tag => {
+              try {
+                if (tag.innerHTML.includes('oklch') || tag.innerHTML.includes('color-mix')) {
+                  // Replace oklch(...) and color-mix(...) with safe fallbacks
+                  tag.innerHTML = tag.innerHTML
+                    .replace(/oklch\([^)]+\)/g, '#000000')
+                    .replace(/color-mix\([^)]+\)/g, '#000000');
+                }
+              } catch (e) {
+                console.warn("Failed to clean style tag", e);
+              }
+            });
+
+            // 2. Remove all link tags that are not fonts to avoid external oklch styles
+            const linkTags = Array.from(clonedDoc.getElementsByTagName('link'));
+            linkTags.forEach(tag => {
+              if (tag.rel === 'stylesheet' && !tag.href.includes('fonts.googleapis.com')) {
+                tag.remove();
+              }
+            });
+
+            // 3. Force clean body and container styles in the clone
+            clonedDoc.body.style.backgroundColor = '#ffffff';
+            clonedDoc.body.style.color = '#000000';
+            clonedDoc.body.style.backgroundImage = 'none';
+
+            const container = clonedDoc.getElementById('pdf-render-container');
+            if (container) {
+              container.style.opacity = '1';
+              container.style.visibility = 'visible';
+              container.style.position = 'relative';
+              container.style.left = '0';
+              container.style.top = '0';
+              container.style.zIndex = '1';
+            }
+          }
+        });
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        doc.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight);
+      };
+
+      // Cover Page
+      if (pages.length > 0) {
+        await addPageToPdf(pages[0], true);
       }
-    } else {
-      // Fallback if no pages
-      doc.setFillColor(245, 245, 240);
-      doc.rect(0, 0, pageWidth, pageHeight, 'F');
-      doc.setTextColor(20, 20, 20);
-      doc.setFontSize(40);
-      doc.text("كتاب التلوين الخاص بي", pageWidth / 2, 60, { align: 'center' });
-      doc.setFontSize(24);
-      doc.text(`تم إنشاؤه لـ ${childName}`, pageWidth / 2, 80, { align: 'center' });
+
+      // Other Pages
+      for (let i = 1; i < pages.length; i++) {
+        await addPageToPdf(pages[i], false, i);
+      }
+
+      return doc;
+    } catch (err) {
+      console.error("PDF Generation Error:", err);
+      throw err;
     }
-
-    // Add a simple border to cover
-    doc.setLineWidth(1);
-    doc.rect(10, 10, pageWidth - 20, pageHeight - 20);
-
-    // Coloring Pages (Skip the first one as it's the cover)
-    pages.slice(1).forEach((page, index) => {
-      doc.addPage();
-      // Calculate dimensions to fit A4 while maintaining aspect ratio (1:1 from Gemini)
-      const margin = 20;
-      const imgSize = pageWidth - (margin * 2);
-      const x = margin;
-      const y = 30; // Start higher to leave room for caption
-      
-      doc.addImage(page.imageUrl, 'PNG', x, y, imgSize, imgSize);
-      
-      // Caption
-      doc.setFontSize(16);
-      doc.setFont("helvetica", "italic");
-      doc.text(page.caption, pageWidth / 2, y + imgSize + 15, { align: 'center', maxWidth: pageWidth - 40 });
-
-      // Page number
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`صفحة ${index + 1}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
-    });
-
-    return doc;
   };
 
-  const downloadPdf = () => {
-    const doc = generatePdf();
-    doc.save(`${childName.replace(/\s+/g, '_')}_Coloring_Book.pdf`);
+  const downloadPdf = async () => {
+    if (isGeneratingPdf) return;
+    try {
+      setIsGeneratingPdf(true);
+      const doc = await generatePdf();
+      doc.save(`${(childName || 'Magic').replace(/\s+/g, '_')}_Coloring_Book.pdf`);
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
-  const printPdf = () => {
-    const doc = generatePdf();
-    const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    
-    iframe.onload = () => {
-      iframe.contentWindow?.print();
-      // Clean up after printing
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-        URL.revokeObjectURL(url);
-      }, 1000);
-    };
+  const printPdf = async () => {
+    if (isGeneratingPdf) return;
+    try {
+      setIsGeneratingPdf(true);
+      const doc = await generatePdf();
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      
+      iframe.onload = () => {
+        iframe.contentWindow?.print();
+        // Clean up after printing
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+          URL.revokeObjectURL(url);
+        }, 1000);
+      };
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   const handleSelectionMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -764,39 +1078,45 @@ export default function App() {
       />
 
       {pages.length === 0 && !isGenerating && (
-        <section className="relative h-[500px] flex items-center justify-center overflow-hidden bg-stone-900">
+        <section className="relative h-[600px] flex items-center justify-center overflow-hidden bg-purple-900">
           <div className="absolute inset-0 opacity-40">
             <img 
-              src="https://picsum.photos/seed/coloring/1920/1080?blur=4" 
+              src="https://picsum.photos/seed/rapunzel/1920/1080?blur=4" 
               className="w-full h-full object-cover"
               alt="Hero Background"
               referrerPolicy="no-referrer"
             />
           </div>
-          <div className="relative z-10 text-center space-y-6 px-6 max-w-4xl">
+          <div className="absolute inset-0 bg-gradient-to-b from-purple-900/60 via-transparent to-purple-900/60" />
+          <div className="relative z-10 text-center space-y-8 px-6 max-w-4xl">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8 }}
+              className="space-y-6"
             >
-              <h2 className="text-5xl md:text-7xl font-serif font-bold text-white leading-tight">
-                حول خيال طفلك إلى <span className="text-pink-500">حقيقة</span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-400/20 backdrop-blur-md text-yellow-300 rounded-full text-xs font-bold uppercase tracking-[0.2em] border border-yellow-400/30 shadow-lg">
+                <Sparkles size={14} />
+                سحر ديزني في منزلك
+              </div>
+              <h2 className="text-6xl md:text-8xl font-serif font-bold text-white leading-tight drop-shadow-2xl">
+                استوديو <span className="text-yellow-400">القصص</span> السحري
               </h2>
-              <p className="text-xl text-stone-300 mt-6 font-medium max-w-2xl mx-auto">
-                استخدم الذكاء الاصطناعي لإنشاء كتب تلوين مخصصة وفريدة من نوعها بلمسة زر واحدة.
+              <p className="text-xl md:text-2xl text-stone-200 font-medium max-w-2xl mx-auto leading-relaxed">
+                حول خيال طفلك لقصص تلوين ممتعة باللهجة المصرية. أنشئ قصصاً مخصصة بلمسة سحرية من الذكاء الاصطناعي.
               </p>
-              <div className="flex flex-wrap justify-center gap-4 mt-10">
+              <div className="flex flex-wrap justify-center gap-6 mt-12">
                 <button 
                   onClick={() => document.getElementById('child-name-input')?.focus()}
-                  className="px-8 py-4 bg-pink-600 text-white rounded-2xl font-bold text-lg hover:bg-pink-700 transition-all shadow-xl shadow-pink-600/20"
+                  className="px-10 py-5 bg-gradient-to-r from-yellow-400 to-orange-500 text-purple-950 rounded-2xl font-bold text-xl hover:scale-105 transition-all shadow-[0_12px_24px_-8px_rgba(250,204,21,0.5)] border-2 border-white/30"
                 >
-                  ابدأ الآن مجاناً
+                  ابدأ مغامرتك الآن
                 </button>
                 <button 
                   onClick={() => setShowGallery(true)}
-                  className="px-8 py-4 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-2xl font-bold text-lg hover:bg-white/20 transition-all"
+                  className="px-10 py-5 bg-white/10 backdrop-blur-xl text-white border-2 border-white/20 rounded-2xl font-bold text-xl hover:bg-white/20 transition-all shadow-xl"
                 >
-                  تصفح المعرض
+                  تصفح المعرض السحري
                 </button>
               </div>
             </motion.div>
@@ -804,42 +1124,45 @@ export default function App() {
         </section>
       )}
 
-      <main className="max-w-7xl mx-auto px-6 py-12">
+      <main className="max-w-7xl mx-auto px-6 py-12 relative z-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           <div className="lg:col-span-4 sticky top-28 space-y-8">
-            <BookControls
-              childName={childName}
-              setChildName={setChildName}
-              theme={theme}
-              setTheme={setTheme}
-              quality={quality}
-              setQuality={setQuality}
-              imageSize={imageSize}
-              setImageSize={setImageSize}
-              aspectRatio={aspectRatio}
-              setAspectRatio={setAspectRatio}
-              pageCount={pageCount}
-              setPageCount={setPageCount}
-              isThinking={isThinking}
-              setIsThinking={setIsThinking}
-              isBilingual={isBilingual}
-              setIsBilingual={setIsBilingual}
-              isTranslating={isTranslating}
-              isGenerating={isGenerating}
-              onGenerate={handleGenerateClick}
-              error={error}
-              progress={progress}
-              pages={pages}
-              onDownloadPdf={downloadPdf}
-              onPrintPdf={printPdf}
-              onSaveClick={handleSaveClick}
-              isSaving={isSaving}
-              user={user}
-              currentBookId={currentBookId}
-              onShowAvatarUpload={() => setShowAvatarUpload(true)}
-              onShowGallery={() => setShowGallery(true)}
-              avatarUrl={avatarUrl}
-            />
+            <div className="bg-white/60 backdrop-blur-2xl rounded-[32px] p-8 shadow-[0_32px_64px_-16px_rgba(109,40,217,0.1)] border-2 border-white/80">
+              <BookControls
+                childName={childName}
+                setChildName={setChildName}
+                theme={theme}
+                setTheme={setTheme}
+                quality={quality}
+                setQuality={setQuality}
+                imageSize={imageSize}
+                setImageSize={setImageSize}
+                aspectRatio={aspectRatio}
+                setAspectRatio={setAspectRatio}
+                pageCount={pageCount}
+                setPageCount={setPageCount}
+                isThinking={isThinking}
+                setIsThinking={setIsThinking}
+                isBilingual={isBilingual}
+                setIsBilingual={setIsBilingual}
+                isTranslating={isTranslating}
+                isGenerating={isGenerating}
+                isGeneratingPdf={isGeneratingPdf}
+                onGenerate={handleGenerateClick}
+                error={error}
+                progress={progress}
+                pages={pages}
+                onDownloadPdf={downloadPdf}
+                onPrintPdf={printPdf}
+                onSaveClick={handleSaveClick}
+                isSaving={isSaving}
+                user={user}
+                currentBookId={currentBookId}
+                onShowAvatarUpload={() => setShowAvatarUpload(true)}
+                onShowGallery={() => setShowGallery(true)}
+                avatarUrl={avatarUrl}
+              />
+            </div>
           </div>
 
           <div className="lg:col-span-8">
@@ -857,6 +1180,8 @@ export default function App() {
               palettes={palettes}
               setPalettes={setPalettes}
               onStartColoring={(index) => setIsColoring(index)}
+              childName={childName}
+              theme={theme}
             />
           </div>
         </div>
@@ -933,9 +1258,9 @@ export default function App() {
         isOpen={showGenerateConfirm}
         onClose={() => setShowGenerateConfirm(false)}
         onConfirm={confirmGenerate}
-        title="بدء كتاب جديد؟"
-        message="لديك كتاب مفتوح حالياً. هل أنت متأكد أنك تريد البدء من جديد؟ سيؤدي هذا إلى مسح الصفحات الحالية واستبدال الكتاب المحفوظ."
-        confirmText="نعم، ابدأ من جديد"
+        title="بدء قصة جديدة؟"
+        message="لديك قصة مفتوحة حالياً. هل أنت متأكد أنك تريد البدء من جديد؟ سيؤدي هذا إلى مسح الصفحات الحالية واستبدال القصة المحفوظة."
+        confirmText="نعم، ابدأ قصة جديدة"
         type="danger"
       />
 
@@ -946,6 +1271,17 @@ export default function App() {
         title="تأكيد الحفظ"
         message="هل أنت متأكد أنك تريد حفظ التغييرات؟ سيؤدي هذا إلى استبدال النسخة القديمة من الكتاب في السجل."
         confirmText="نعم، احفظ التغييرات"
+        type="warning"
+      />
+
+      <ConfirmModal
+        isOpen={showDraftResumeConfirm}
+        onClose={clearDraft}
+        onConfirm={resumeDraft}
+        title="استئناف القصة؟"
+        message="وجدنا مسودة لقصة تلوين كنت تعمل عليها سابقاً. هل تود استئناف العمل عليها أم البدء من جديد؟"
+        confirmText="استئناف القصة"
+        cancelText="البدء من جديد"
         type="warning"
       />
 
@@ -991,6 +1327,21 @@ export default function App() {
 
       <VisionModal isOpen={showVision} onClose={() => setShowVision(false)} />
       <ChatBot kimiKey={useKimi ? kimiApiKey : undefined} />
+      
+      {/* Hidden container for PDF rendering to support Arabic fonts via html2canvas */}
+      <div 
+        id="pdf-render-container" 
+        style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          opacity: 0, 
+          pointerEvents: 'none', 
+          zIndex: -100, 
+          width: '210mm', 
+          backgroundColor: '#ffffff' 
+        }} 
+      />
     </div>
   );
 }

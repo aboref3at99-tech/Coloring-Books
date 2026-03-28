@@ -9,6 +9,7 @@ interface ConfirmModalProps {
   title: string;
   message: string;
   confirmText: string;
+  cancelText?: string;
   type?: 'danger' | 'warning';
 }
 
@@ -19,6 +20,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   title,
   message,
   confirmText,
+  cancelText = 'إلغاء',
   type = 'warning'
 }) => {
   return (
@@ -46,7 +48,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                 onClick={onClose}
                 className="flex-1 bg-gray-100 text-black rounded-2xl py-4 font-semibold hover:bg-gray-200 transition-all"
               >
-                إلغاء
+                {cancelText}
               </button>
               <button
                 onClick={onConfirm}

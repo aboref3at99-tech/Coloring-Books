@@ -34,15 +34,15 @@ export const Header: React.FC<HeaderProps> = ({
   currentBookId
 }) => {
   return (
-    <header className="border-b border-stone-200/60 bg-white/80 backdrop-blur-xl sticky top-0 z-40">
+    <header className="border-b-4 border-yellow-400/30 bg-white/80 backdrop-blur-xl sticky top-0 z-40 shadow-[0_8px_32px_-8px_rgba(109,40,217,0.1)]">
       <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3 group cursor-pointer" onClick={onReset}>
-          <div className="bg-gradient-to-br from-pink-500 to-purple-600 p-2.5 rounded-2xl shadow-3d group-hover:scale-110 transition-transform">
+          <div className="bg-gradient-to-br from-yellow-400 via-purple-500 to-pink-500 p-2.5 rounded-2xl shadow-[0_8px_16px_-4px_rgba(109,40,217,0.3)] group-hover:scale-110 transition-transform border-2 border-white/50">
             <Palette className="text-white" size={24} />
           </div>
           <div className="flex flex-col">
-            <h1 className="text-xl font-serif font-bold text-stone-800 tracking-tight leading-none">رسام التلوين</h1>
-            <span className="text-[10px] font-bold text-pink-600 uppercase tracking-widest mt-1">Magic Studio</span>
+            <h1 className="text-2xl font-serif font-bold text-purple-900 tracking-tight leading-none">استوديو ريبونزل</h1>
+            <span className="text-[10px] font-bold text-yellow-600 uppercase tracking-[0.3em] mt-1">Rapunzel's Magic Studio</span>
           </div>
         </div>
 

@@ -17,6 +17,8 @@ interface BookPreviewProps {
   palettes: Record<number, { name: string, hex: string, reason: string }[]>;
   setPalettes: React.Dispatch<React.SetStateAction<Record<number, { name: string, hex: string, reason: string }[]>>>;
   onStartColoring: (index: number) => void;
+  childName: string;
+  theme: string;
 }
 
 export const BookPreview: React.FC<BookPreviewProps> = ({
@@ -33,8 +35,22 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
   palettes,
   setPalettes,
   onStartColoring,
+  childName,
+  theme,
 }) => {
   const [is3D, setIs3D] = React.useState(false);
+  const [mousePos, setMousePos] = React.useState({ x: 0, y: 0 });
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width - 0.5;
+    const y = (e.clientY - rect.top) / rect.height - 0.5;
+    setMousePos({ x, y });
+  };
+
+  const handleMouseLeave = () => {
+    setMousePos({ x: 0, y: 0 });
+  };
 
   if (pages.length === 0) {
     return (
@@ -95,11 +111,15 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
   return (
     <div className="lg:col-span-8 space-y-10">
       {/* Main Carousel Section */}
-      <div className="relative group perspective-1000">
+      <div 
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="relative group perspective-1000"
+      >
         <motion.div 
           animate={{ 
-            rotateY: is3D ? 15 : 0,
-            rotateX: is3D ? 5 : 0,
+            rotateY: is3D ? 15 : mousePos.x * 10,
+            rotateX: is3D ? 5 : -mousePos.y * 10,
             scale: is3D ? 1.05 : 1,
             z: is3D ? 50 : 0
           }}
@@ -115,40 +135,84 @@ export const BookPreview: React.FC<BookPreviewProps> = ({
               transition={{ type: "spring", stiffness: 120, damping: 25 }}
               className="relative w-full h-full flex items-center justify-center bg-stone-50/30 preserve-3d"
             >
-              <motion.img 
+              <motion.div
+                whileHover={{ 
+                  scale: 1.02,
+                  y: -8,
+                  transition: { type: "spring", stiffness: 400, damping: 10 }
+                }}
                 animate={{ 
                   y: [0, -10, 0],
-                  rotateZ: [0, 1, 0]
+                  rotateZ: [0, 1, 0],
                 }}
                 transition={{ 
-                  duration: 4, 
-                  repeat: Infinity, 
-                  ease: "easeInOut" 
+                  y: {
+                    duration: 4, 
+                    repeat: Infinity, 
+                    ease: "easeInOut" 
+                  },
+                  rotateZ: {
+                    duration: 5,
+                    repeat: Infinity,
+                    ease: "easeInOut"
+                  }
                 }}
-                src={currentPage.coloredImageUrl || currentPage.imageUrl} 
-                alt={`Page ${currentCarouselIndex + 1}`}
-                className="w-full h-full object-contain p-12 drop-shadow-[0_20px_50px_rgba(0,0,0,0.2)]"
-                referrerPolicy="no-referrer"
-              />
+                style={{ 
+                  x: mousePos.x * 30,
+                  rotateX: -mousePos.y * 15,
+                  rotateY: mousePos.x * 15,
+                }}
+                className="w-full h-full flex flex-col items-center justify-center p-12 relative cursor-pointer"
+              >
+                {currentCarouselIndex === 0 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none">
+                    <div className="mb-auto mt-4 text-pink-500 font-kids font-bold tracking-widest text-sm uppercase">
+                      ✨ Disney Magic Studio ✨
+                    </div>
+                    <div className="mb-4 text-center px-8">
+                      <h2 className="text-4xl font-arabic font-black text-purple-600 leading-tight drop-shadow-md">
+                        {theme || 'قصة تلوين سحرية'}
+                      </h2>
+                      <p className="text-xl font-arabic font-bold text-pink-500 mt-2">
+                        بطل القصة: {childName || 'صديقنا الصغير'}
+                      </p>
+                    </div>
+                    <div className="mt-auto mb-4 text-stone-400 font-arabic text-xs">
+                      صُنع بكل حب في استوديو القصص السحري
+                    </div>
+                  </div>
+                )}
+
+                <img 
+                  src={currentPage.coloredImageUrl || currentPage.imageUrl} 
+                  alt={`Page ${currentCarouselIndex + 1}`}
+                  className={`object-contain drop-shadow-[0_20px_50px_rgba(0,0,0,0.2)] transition-all duration-500 ${
+                    currentCarouselIndex === 0 ? 'w-[60%] opacity-80' : 'w-full h-full'
+                  }`}
+                  referrerPolicy="no-referrer"
+                />
+              </motion.div>
               
               {/* Caption Overlay */}
-              <div className="absolute bottom-0 left-0 right-0 p-10 bg-gradient-to-t from-white via-white/95 to-transparent pt-24">
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="text-center space-y-3"
-                >
-                  <p className="text-2xl font-serif font-bold text-stone-800 leading-snug">
-                    {currentPage.caption}
-                  </p>
-                  {currentPage.captionEn && (
-                    <p className="text-base font-sans text-stone-400 font-medium italic tracking-wide">
-                      {currentPage.captionEn}
+              {currentCarouselIndex !== 0 && (
+                <div className="absolute bottom-0 left-0 right-0 p-10 pt-24">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="text-center space-y-4"
+                  >
+                    <p className="text-4xl font-bold coloring-text leading-snug drop-shadow-sm">
+                      {currentPage.caption}
                     </p>
-                  )}
-                </motion.div>
-              </div>
+                    {currentPage.captionEn && (
+                      <p className="text-2xl font-kids font-bold coloring-text italic tracking-wide drop-shadow-sm">
+                        {currentPage.captionEn}
+                      </p>
+                    )}
+                  </motion.div>
+                </div>
+              )}
 
               {/* Quick Actions Floating Bar */}
               <div className="absolute top-8 right-8 flex flex-col gap-3 opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-all duration-300 sm:translate-x-4 sm:group-hover/card:translate-x-0">

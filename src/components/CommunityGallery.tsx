@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Globe, User, Calendar, BookOpen, Heart } from 'lucide-react';
+import { X, Globe, User, Calendar, BookOpen, Heart, Eye } from 'lucide-react';
 import { SavedBook } from '../types';
+import { QuickPreviewModal } from './modals/QuickPreviewModal';
 
 interface CommunityGalleryProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export const CommunityGallery: React.FC<CommunityGalleryProps> = ({
   books,
   onViewBook
 }) => {
+  const [previewBook, setPreviewBook] = React.useState<SavedBook | null>(null);
   return (
     <AnimatePresence>
       {isOpen && (
@@ -80,9 +82,27 @@ export const CommunityGallery: React.FC<CommunityGalleryProps> = ({
                               <span>12</span>
                             </div>
                           </div>
-                          <button className="w-full bg-white text-black py-2 rounded-xl font-bold text-xs shadow-lg mt-2">
-                            تصفح الكتاب
-                          </button>
+                          <div className="flex gap-2 mt-2">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewBook(book);
+                              }}
+                              className="flex-1 bg-white text-black py-2 rounded-xl font-bold text-[10px] shadow-lg hover:bg-stone-100 transition-colors"
+                            >
+                              تصفح الكتاب
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPreviewBook(book);
+                              }}
+                              className="bg-black/40 backdrop-blur-md text-white p-2 rounded-xl hover:bg-black/60 transition-colors"
+                              title="معاينة سريعة"
+                            >
+                              <Eye size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -90,6 +110,12 @@ export const CommunityGallery: React.FC<CommunityGalleryProps> = ({
                 </div>
               )}
             </div>
+            
+            <QuickPreviewModal 
+              isOpen={!!previewBook}
+              onClose={() => setPreviewBook(null)}
+              pages={previewBook?.pages || []}
+            />
           </motion.div>
         </div>
       )}

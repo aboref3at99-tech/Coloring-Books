@@ -23,6 +23,7 @@ interface BookControlsProps {
   setIsBilingual: (b: boolean) => void;
   isTranslating: boolean;
   isGenerating: boolean;
+  isGeneratingPdf: boolean;
   onGenerate: (retryStandard?: boolean) => void;
   error: string | null;
   progress: number;
@@ -57,6 +58,7 @@ export const BookControls: React.FC<BookControlsProps> = ({
   setIsBilingual,
   isTranslating,
   isGenerating,
+  isGeneratingPdf,
   onGenerate,
   error,
   progress,
@@ -134,7 +136,7 @@ export const BookControls: React.FC<BookControlsProps> = ({
               <textarea
                 value={theme}
                 onChange={(e) => setTheme(e.target.value)}
-                placeholder="مثال: رحلة إلى كوكب الحلويات الملونة..."
+                placeholder="مثال: قصة عن أسد شجاع بيحب المغامرة في الغابة السحرية..."
                 className="w-full bg-stone-50/50 border border-stone-100 rounded-2xl px-5 py-4 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all min-h-[120px] resize-none text-stone-800 placeholder:text-stone-300 leading-relaxed shadow-inner"
                 disabled={isGenerating}
               />
@@ -355,10 +357,11 @@ export const BookControls: React.FC<BookControlsProps> = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={onDownloadPdf}
-            className="w-full bg-emerald-600 text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/10 active:scale-[0.98]"
+            disabled={isGeneratingPdf}
+            className="w-full bg-emerald-600 text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/10 active:scale-[0.98] disabled:opacity-50"
           >
-            <Download size={20} />
-            <span className="uppercase tracking-[0.2em] text-xs">تحميل PDF</span>
+            {isGeneratingPdf ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
+            <span className="uppercase tracking-[0.2em] text-xs">{isGeneratingPdf ? 'جاري التحضير...' : 'تحميل PDF'}</span>
           </motion.button>
           
           <div className="grid grid-cols-2 gap-3">
@@ -367,9 +370,10 @@ export const BookControls: React.FC<BookControlsProps> = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
               onClick={onPrintPdf}
-              className="bg-white text-stone-600 border border-stone-100 rounded-2xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-stone-50 transition-all text-xs uppercase tracking-widest"
+              disabled={isGeneratingPdf}
+              className="bg-white text-stone-600 border border-stone-100 rounded-2xl py-4 font-bold flex items-center justify-center gap-2 hover:bg-stone-50 transition-all text-xs uppercase tracking-widest disabled:opacity-50"
             >
-              <Printer size={18} />
+              {isGeneratingPdf ? <Loader2 className="animate-spin" size={18} /> : <Printer size={18} />}
               طباعة
             </motion.button>
             {user && (

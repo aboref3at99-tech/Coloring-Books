@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, Type, ThinkingLevel, VideoGenerationReferenceImage, VideoGenerationReferenceType } from "@google/genai";
+import { GoogleGenAI, Modality, Type, ThinkingLevel, VideoGenerationReferenceImage, VideoGenerationReferenceType, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
 export class ApiError extends Error {
   constructor(
@@ -25,7 +25,7 @@ export const parseApiError = (err: any): ApiError => {
     );
   }
   
-  if (errorMsg.includes("SAFETY") || errorMsg.includes("blocked") || errorMsg.includes("safety filters")) {
+  if (errorMsg.includes("SAFETY") || errorMsg.includes("blocked") || errorMsg.includes("safety filters") || errorMsg.includes("PROHIBITED_CONTENT")) {
     return new ApiError(
       "تم حظر المحتوى",
       'UNKNOWN',
@@ -98,6 +98,15 @@ export const parseApiError = (err: any): ApiError => {
     );
   }
 
+  if (errorMsg.includes("oklch") || errorMsg.includes("unsupported color function") || errorMsg.includes("color-mix")) {
+    return new ApiError(
+      "خطأ في معالجة الملف",
+      'UNKNOWN',
+      "نعتذر، حدث خطأ تقني أثناء تحضير ملف PDF بسبب عدم توافق في متصفحك مع بعض الألوان الحديثة (oklch). لقد حاولنا إصلاح ذلك تلقائياً، يرجى المحاولة مرة أخرى أو استخدام متصفح Chrome للحصول على أفضل النتائج.",
+      err
+    );
+  }
+
   return new ApiError(
     "حدث خطأ غير متوقع",
     'UNKNOWN',
@@ -114,7 +123,7 @@ const withRetry = async <T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> =>
       return await fn();
     } catch (err: any) {
       const errorMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-      const isRetryable = errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("503") || errorMsg.includes("500") || errorMsg.includes("EMPTY_RESPONSE") || errorMsg.includes("MODEL_RETURNED_TEXT");
+      const isRetryable = errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED") || errorMsg.includes("503") || errorMsg.includes("500") || errorMsg.includes("EMPTY_RESPONSE") || errorMsg.includes("MODEL_RETURNED_TEXT") || errorMsg.includes("PROHIBITED_CONTENT");
       
       if (isRetryable && retries < maxRetries) {
         retries++;
@@ -174,17 +183,26 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
     try {
       const isPreviewModel = modelToUse === 'gemini-3.1-flash-image-preview' || modelToUse === 'gemini-3-pro-image-preview';
       
+      const safetySettings = [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ];
+
       const response = await ai.models.generateContent({
         model: modelToUse,
         contents: params.avatarUrl ? { parts: parts } : coloringPrompt,
-        ...(isPreviewModel ? {
-          config: {
+        config: {
+          safetySettings,
+          ...(isPreviewModel ? {
             imageConfig: {
               aspectRatio: params.aspectRatio || "1:1",
               imageSize: params.imageSize
             },
-          }
-        } : {})
+          } : {})
+        }
       });
 
       if ((response as any).promptFeedback?.blockReason) {
@@ -195,9 +213,14 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
         throw new Error("EMPTY_RESPONSE: No candidates returned from the model.");
       }
 
-      if (response.candidates?.[0]?.content?.parts) {
+      const candidate = response.candidates[0];
+      if (candidate.finishReason === 'PROHIBITED_CONTENT') {
+        throw new Error("PROHIBITED_CONTENT: The model generated content that was blocked by safety filters.");
+      }
+
+      if (candidate.content?.parts) {
         let textResponse = "";
-        for (const part of response.candidates[0].content.parts) {
+        for (const part of candidate.content.parts) {
           if (part.inlineData) {
             const mimeType = part.inlineData.mimeType || 'image/png';
             return `data:${mimeType};base64,${part.inlineData.data}`;
@@ -208,7 +231,7 @@ export const generateColoringImage = async (params: ImageGenerationParams) => {
         if (textResponse.trim()) {
           throw new Error(`MODEL_RETURNED_TEXT: ${textResponse.trim()}`);
         }
-        console.error("No inlineData found in parts:", JSON.stringify(response.candidates[0].content.parts));
+        console.error("No inlineData found in parts:", JSON.stringify(candidate.content.parts));
       } else {
         console.error("No parts found in response:", JSON.stringify(response));
       }
@@ -273,14 +296,14 @@ export const generateBookScenes = async (theme: string, count: number, thinking:
     The cover should be a complete composition with decorative elements related to the theme, all in black and white line art.
     DO NOT request any text, words, or letters in the image prompt. The image should be purely illustrative.
     
-    The remaining ${count} scenes should be the story/activity pages.
+    The remaining ${count} scenes should form a COHESIVE and FUN STORY for children.
     
     For each scene (including the cover), provide:
     1. A detailed image prompt for an AI image generator. The prompt MUST explicitly request "pure black and white line art", "thick outlines", and "strictly NO shading, NO grayscale, NO colors".
-    2. A simple, age-appropriate caption (one short sentence) in Arabic for the child to read.
-    ${bilingual ? '3. An English translation of the caption.' : ''}
+    2. A short, engaging story part or descriptive label related to the scene in Egyptian Arabic dialect (اللهجة المصرية العامية) suitable for young children. Make it fun, simple, and interesting.
+    ${bilingual ? '3. An English translation of the story part.' : ''}
     
-    IMPORTANT: The caption MUST be in Arabic. ${bilingual ? 'Also provide the English translation.' : ''}
+    IMPORTANT: The story part MUST be in Egyptian Arabic dialect (Ammiya). ${bilingual ? 'Also provide the English translation.' : ''}
     Return the result as a JSON array of objects with "imagePrompt", "caption" ${bilingual ? ', and "captionEn"' : ''} fields.`;
 
   // Use Kimi if key is provided
@@ -642,6 +665,73 @@ export const translateToArabic = async (text: string): Promise<string> => {
 
     if (!response.text) throw new Error("Failed to translate text.");
     return response.text.trim();
+  });
+};
+
+export const magicColorImage = async (base64Image: string, prompt: string, selection?: Selection | null, palette?: { name: string, hex: string }[]) => {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || process.env.KIMI || process.env.KIMI_API_KEY;
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const match = base64Image.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) throw new Error("Invalid image format");
+  const mimeType = match[1];
+  const data = match[2];
+
+  let finalPrompt = `You are a master artist. Color this black and white coloring book page beautifully. 
+  Instructions: ${prompt}. 
+  Style: Vibrant, child-friendly, high-quality digital coloring. 
+  Keep the original black outlines visible but fill the white areas with colors.`;
+  
+  if (palette && palette.length > 0) {
+    const colorsStr = palette.map(p => `${p.name} (${p.hex})`).join(", ");
+    finalPrompt += `\nUse this color palette primarily: ${colorsStr}.`;
+  }
+
+  if (selection) {
+    const ymin = Math.round(selection.y * 10);
+    const xmin = Math.round(selection.x * 10);
+    const ymax = Math.round((selection.y + selection.h) * 10);
+    const xmax = Math.round((selection.x + selection.w) * 10);
+    
+    finalPrompt = `Color only the specific area defined by the coordinates [${ymin}, ${xmin}, ${ymax}, ${xmax}] in this coloring page. 
+    Instructions for this area: ${prompt}. 
+    Keep the rest of the image exactly as it is (black and white). 
+    Ensure the colored area blends naturally with the outlines.`;
+  }
+
+  return withRetry(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [
+            { inlineData: { data, mimeType } },
+            { text: finalPrompt },
+          ],
+        },
+      });
+
+      if (!response.candidates || response.candidates.length === 0) {
+        throw new Error("EMPTY_RESPONSE: No candidates returned from the model.");
+      }
+
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            const outMimeType = part.inlineData.mimeType || 'image/png';
+            return `data:${outMimeType};base64,${part.inlineData.data}`;
+          }
+        }
+      }
+      
+      const finishReason = response.candidates?.[0]?.finishReason;
+      if (finishReason === 'SAFETY') {
+        throw new Error("SAFETY_BLOCKED: The content was blocked by safety filters.");
+      }
+      throw new Error("EMPTY_RESPONSE: No colored image was returned.");
+    } catch (err: any) {
+      throw err;
+    }
   });
 };
 
